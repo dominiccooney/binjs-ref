@@ -42,5 +42,9 @@ path = "src/bin/decode.rs"
 name = "bench_fb"
 harness = false
 
+[[bin]]
+name = "compare_compression"
+path = "examples/compare_compression.rs"
+
 [workspace]
 members = ["crates/*"]
