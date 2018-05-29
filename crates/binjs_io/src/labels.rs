@@ -145,11 +145,11 @@ impl<T,W> Dictionary<T,W> for MRUDeltaLabeler<T> where T: Eq + Hash + Sized + La
 
         match self.mru.access(index) {
             Delta::TooFar => {
-                out.write_delta_literal(index as u32);
+                out.write_delta_literal(index as u32)?;
                 Ok(false)
             }
             Delta::Delta(i, d) => {
-                out.write_delta_delta(i, d);
+                out.write_delta_delta(i, d)?;
                 Ok(false)
             }
         }
