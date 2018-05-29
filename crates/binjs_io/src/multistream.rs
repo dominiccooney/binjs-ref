@@ -400,6 +400,86 @@ impl TreeTokenWriter {
         })
     }
 }
+
+    // Creates a string table ordered for effective compression later.
+//
+// String references are encoded using three most recently used registers:
+//
+// Byte 0, l.o. bits:  h.o. bits:
+//   00                -2^5 .. 2^5-1 two's complement delta of MRU register 0
+//   01                -2^5 .. 2^5-1 two's complement delta of MRU register 1
+//   10                -2^5 .. 2^5-1 two's complement delta of MRU register 2
+//   11                literal; if bit 3 is set, continues in subsequent bytes
+//
+// When a multi-byte literal is mentioned (.....111) the least
+// recently used register is evicted, registers shuffle down, and
+// MRU-0 is set to the literal.
+//
+// When a register delta is mentioned (00, 01, 10) *that* register is
+// evicted, the registers shuffle down (if 01, 10) and MRU-0 is set to
+// the old register value with the delta applied. This preserves
+// diversity of the MRU values.
+//
+// The 5-bit literal nnnnn011 fits in a single byte, so the strings
+// are organized this way:
+//
+// - The top 2^5 most frequent strings are assigned indices 0 ..
+//   2^5-1. These strings may account for a third or more of the
+//   references.
+//
+// - The less frequent strings are assigned indices 2^5 ..
+//
+// - To induce Brotli copies, strings within each group are sorted
+//   lexicographically (although other sortings are allowable.)
+//
+// - To induce Brotli copies between the groups, the frequent strings
+//   are sorted in reverse lexicographic order (although other
+//   sortings are allowable.)
+fn lay_out_string_table(string_instances: &mut HashMap<Label, usize>) -> Vec<Label> {
+    let (top_strings, bottom_strings): (Vec<(usize, &Label)>, Vec<(usize, &Label)>) = string_instances
+        .into_iter()
+        .sorted_by(|a,b| usize::cmp(&b.1, &a.1))
+        .into_iter()
+        .map(|(string, occurrence)| string)
+        .enumerate()
+        .partition(|(i, string)| *i < 32);
+
+    top_strings
+        .into_iter()
+        .map(|(i, string)| string.clone()) // strip off the indices
+        .sorted_by(|a, b| compare_string_label_lexicographically(&b, &a))
+        .into_iter()
+        .inspect(|string| debug!(target: "multistream", "top string: {:?}", string))
+        .chain(
+            bottom_strings
+                .into_iter()
+                .map(|(i, string)| string.clone()) // strip off the indices
+                .sorted_by(|a, b| compare_string_label_lexicographically(&a, &b))
+                .into_iter()
+                .inspect(|string| debug!(target: "multistream", "bottom string: {:?}", string)))
+        .collect()
+/*
+    by_frequency_desc
+        .into_iter()
+        .sorted_by(|a,b| compare_string_label_lexicographically(a, b))
+        .into_iter()
+        .map(|s| s.clone())
+        .inspect(|x| debug!(target: "multistream", "sorted: {:?}", x))
+        .collect()
+*/
+}
+
+fn compare_string_label_lexicographically(a: &Label, b: &Label) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Label::String(None), Label::String(None)) => { Ordering::Equal }
+        (Label::String(None), _) => { Ordering::Less }
+        (_, Label::String(None)) => { Ordering::Greater }
+        (Label::String(Some(p)), Label::String(Some(q))) => { str::cmp(&p, &q) }
+        _ => panic!("string frequencies contains non-strings")
+    }
+}
+
 impl TokenWriter for TreeTokenWriter {
     type Error = TokenWriterError;
     type Statistics = Statistics;
@@ -505,7 +585,7 @@ impl TokenWriter for TreeTokenWriter {
     }
 
     fn done(mut self) -> Result<(Self::Data, Self::Statistics), Self::Error> {
-        use labels:: { ExplicitIndexLabeler, MRULabeler, ParentPredictionFrequencyLabeler, RawLabeler };
+        use labels:: { ExplicitIndexLabeler, MRUDeltaLabeler, MRULabeler, ParentPredictionFrequencyLabeler, RawLabeler };
         self.number_references()?;
 
         let mut tag_instances = HashMap::new();
@@ -591,13 +671,19 @@ impl TokenWriter for TreeTokenWriter {
             .collect();
         let tag_frequency_dictionary = ExplicitIndexLabeler::new(tag_frequencies.clone());
 
-        let string_frequencies : HashMap<_, _> = string_instances.into_iter()
-            .sorted_by(|a,b| usize::cmp(&b.1, &a.1))
-            .into_iter()
+        let strings_ordered = lay_out_string_table(&mut string_instances);
+        debug!(target: "multistream", "strings_ordered {:?}",
+               strings_ordered.iter().format("\n"));
+        let string_index_map: HashMap<Label,usize> = strings_ordered
+            .iter()
             .enumerate()
-            .map(|(position, (s, _))| (s, position))
+            .map(|(pos, s)| (s.clone(), pos))
             .collect();
-        let mut string_frequency_dictionary = ExplicitIndexLabeler::new(string_frequencies.clone());
+        // TODO: Use the MRU delta labeler here. The explicit index
+        // labeler numbers the entries as they are output; instead it
+        // can just write the string and use the implicit order.
+        //let mut string_frequency_dictionary = ExplicitIndexLabeler::new(string_index_map.clone());
+        let mut string_frequency_dictionary = MRUDeltaLabeler::new(string_index_map.clone());
         let mut string_frequency_stream = self.targets.header_strings;
 
         let identifier_reference_frequencies : HashMap<_, _> = identifier_reference_instances.into_iter()
@@ -660,19 +746,16 @@ impl TokenWriter for TreeTokenWriter {
                 header_identifiers.stream.len(),
                 identifier_definition_frequencies.len());
 
-            string_frequency_stream.write_varnum(string_frequencies.len() as u32).unwrap();
-            // Write from least common to most common.
-            let string_keys = string_frequencies.iter()
-                .sorted_by(|a,b| usize::cmp(&b.1, &a.1));
-            for (ref string, _) in &string_keys {
+            string_frequency_stream.write_varnum(strings_ordered.len() as u32).unwrap();
+            for ref string in &strings_ordered {
                 string_frequency_stream.write_varnum(string.string_byte_len() as u32).unwrap();
             }
-            for (ref string, _) in &string_keys {
+            for ref string in &strings_ordered {
                 string_frequency_dictionary.write_label(string, None, &mut string_frequency_stream).unwrap();
             }
             debug!(target: "multistream", "Wrote {} bytes ({} strings) to header",
                 string_frequency_stream.len(),
-                string_frequencies.len());
+                strings_ordered.len());
         }
 
         let mut compressors = PerCategory {

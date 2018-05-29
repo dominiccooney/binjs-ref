@@ -4,6 +4,7 @@ use bytes::varnum::*;
 
 use std;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::Write;
@@ -98,6 +99,61 @@ impl<T, W: Write> Dictionary<T, W> for MRULabeler<T> where T: Eq + Label + Clone
 struct Seen<T> {
     index: T,
     is_first: bool,
+}
+
+pub struct MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label {
+    mru: binjs_shared::mru_delta::MRUDelta,
+    size: usize, // number of unqiue strings
+    string_index_map: HashMap<T,usize>,
+    seen: HashSet<usize>,
+}
+
+impl<T> MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label {
+    pub fn new(label_index_map: HashMap<T,usize>) -> Self {
+        let size = label_index_map.len();
+        Self {
+            mru: binjs_shared::mru_delta::MRUDelta::new(3),
+            size: label_index_map.len(),
+            string_index_map: label_index_map,
+            seen: HashSet::with_capacity(size),
+        }
+    }
+}
+
+// TODO: This isn't actually constrained by usize; stack this with another labeler.
+impl<T,W> Dictionary<T,W> for MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label, W: Write {
+    fn write_label_at(&mut self, baseline: Option<usize>, label: &T, parent: Option<&T>, out: &mut W) -> Result<bool, std::io::Error> {
+        use bytes::varnum::WriteDelta;
+        use binjs_shared::mru_delta::Delta;
+
+        if let Some(_) = baseline {
+            panic!("Have not thought about offset MRU delta labels.");
+        }
+        if let Some(_) = baseline {
+            panic!("Have not thought about context-dependent MRU delta labels.");
+        }
+
+        let index = self.string_index_map.get(label).expect("Can only write labels in the map").clone();
+
+        if self.seen.insert(index) {
+            // TODO: This is hokey, we know we're writing the string
+            // table first, the length has been stored out-of-line,
+            // and the order is implicit.
+            label.write_definition(None, parent, self, out)?;
+            return Ok(true);
+        }
+
+        match self.mru.access(index) {
+            Delta::TooFar => {
+                out.write_delta_literal(index as u32);
+                Ok(false)
+            }
+            Delta::Delta(i, d) => {
+                out.write_delta_delta(i, d);
+                Ok(false)
+            }
+        }
+    }
 }
 
 /// Label entries with a dictionary.

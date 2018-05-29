@@ -9,6 +9,7 @@ pub use json_conversion::*;
 pub mod ast;
 
 pub mod mru;
+pub mod mru_delta;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Offset(pub u32);
