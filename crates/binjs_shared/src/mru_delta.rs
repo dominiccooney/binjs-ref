@@ -22,22 +22,22 @@ pub enum Delta {
 
 /// A structure used to access values with repeated values in a small range.
 ///
-/// TODO: below is out of date; literals which fit in 5 bits no longer go in the queue
 /// ```
 /// use binjs_shared::mru_delta::{ MRUDelta, Delta };
 ///
 /// let mut mru = MRUDelta::new(3);
 ///
-/// assert_eq!(mru.access(7), Delta::Delta(0, 7), "Introducing 7, offset from default 0");
-/// assert_eq!(mru.access(7), Delta::Delta(0, 0),   "Just introduced 7");
-/// assert_eq!(mru.access(7), Delta::Delta(0, 0),   "Just accessed 7);
-/// assert_eq!(mru.access(8), Delta::Delta(0, 1), "Introducing 8, one more than 7");
-/// assert_eq!(mru.access(7), Delta::Delta(0, -1), "Access 7 again");
-/// assert_eq!(mru.access(9), Delta::Delta(0, 1), "Back to 8");
-/// assert_eq!(mru.access(100), Delta::TooFar,   "100 is out of range 2^5-1");
-/// assert_eq!(mru.access(131), Delta::Delta(0, 31), "131 is just in range of 100");
-/// assert_eq!(mru.access(99), Delta::Delta(0, -32), "68 is just in range of 100");
-/// assert_eq!(mru.access(0), Delta::Delta(1, -8),   "8 has been hanging around through delta updates");
+/// assert_eq!(mru.access(10),  Delta::TooFar,        "Introducing 10, within range from default 0 but small literal");
+/// assert_eq!(mru.access(200), Delta::TooFar,        "Introducing 200, out of range from 10/0.");
+/// assert_eq!(mru.access(200), Delta::Delta(0, 0),   "Just introduced 200");
+/// assert_eq!(mru.access(200), Delta::Delta(0, 0),   "Just accessed 200");
+/// assert_eq!(mru.access(201), Delta::Delta(0, 1),   "Introducing 201, one more than 200");
+/// assert_eq!(mru.access(200), Delta::Delta(0, -1),  "Access 200 again");
+/// assert_eq!(mru.access(202), Delta::Delta(0, 2),   "201 should not be in the MRU list, it should have been replaced by 200");
+/// assert_eq!(mru.access(100), Delta::TooFar,        "100 is out of range -2^5");
+/// assert_eq!(mru.access(131), Delta::Delta(0, 31),  "131 is just in range of 100");
+/// assert_eq!(mru.access(99),  Delta::Delta(0, -32), "99 is *just* in range of 131");
+/// assert_eq!(mru.access(202), Delta::Delta(1, 0),   "202 has been hanging around in MRU1");
 ///```
 pub struct MRUDelta {
     // Maximum number of entries in the MRU
@@ -60,16 +60,16 @@ impl MRUDelta {
         }
         let mut min_index = self.size;
         // TODO: This prevents the maximum negative value.
-        let mut min_delta = 1i8 << (8 - self.size);
+        let mut min_delta = (1i8 << (8 - self.size)) + 1;
         // Find the entry with the smallest delta to value.
         for (index, entry) in self.items.iter().enumerate() {
-            let delta = i64::abs(*entry as i64 - value as i64);
-            if delta < (min_delta as i64) {
+            let delta = value as i64 - *entry as i64;
+            if i64::abs(delta) < i64::abs(min_delta as i64) {
                 min_index = index;
                 min_delta = delta as i8;
             }
         }
-        if min_index == self.size {
+        if min_delta < -32 || 31 < min_delta {
             // Bit sad there's no swap_to_front?
             self.items.push_front(value);
             self.items.pop_back();
