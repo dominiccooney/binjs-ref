@@ -8,6 +8,8 @@ pub use json_conversion::*;
 
 pub mod ast;
 
+pub mod bwt;
+
 pub mod mru;
 pub mod mru_delta;
 
