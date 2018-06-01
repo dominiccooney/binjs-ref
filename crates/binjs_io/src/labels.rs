@@ -135,14 +135,17 @@ impl<T,W> Dictionary<T,W> for MRUDeltaLabeler<T> where T: Eq + Hash + Sized + La
 
         let index = self.string_index_map.get(label).expect("Can only write labels in the map").clone();
 
+        // TODO: More hacks on hacks, now we're writing the string data
+        // out of band, so we never write definitions.
         if self.seen.insert(index) {
+            /*
             // TODO: This is hokey, we know we're writing the string
             // table first, the length has been stored out-of-line,
             // and the order is implicit.
             label.write_definition(None, parent, self, out)?;
             return Ok(true);
+            */
         }
-
         match self.mru.access(index) {
             Delta::TooFar => {
                 out.write_delta_literal(index as u32)?;

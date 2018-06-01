@@ -26,6 +26,8 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 
+use binjs_shared::bwt;
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub sibling_labels_together: bool,
@@ -401,7 +403,7 @@ impl TreeTokenWriter {
     }
 }
 
-    // Creates a string table ordered for effective compression later.
+// Creates a string table ordered for effective compression later.
 //
 // String references are encoded using three most recently used registers:
 //
@@ -429,12 +431,13 @@ impl TreeTokenWriter {
 //
 // - The less frequent strings are assigned indices 2^5 ..
 //
-// - To induce Brotli copies, strings within each group are sorted
-//   lexicographically (although other sortings are allowable.)
+// - The encoder can arrange strings any way it likes to keep strings
+//   of the same length together (so their lengths can be copied) and
+//   keep strings used together within the delta code distance. This
+//   encoder simply sorts the strings.
 //
-// - To induce Brotli copies between the groups, the frequent strings
-//   are sorted in reverse lexicographic order (although other
-//   sortings are allowable.)
+// - To induce Brotli copies, the concatenated strings are later
+//   transformed with the Burrows-Wheeler transform.
 fn lay_out_string_table(string_instances: &mut HashMap<Label, usize>) -> Vec<Label> {
     let (top_strings, bottom_strings): (Vec<(usize, &Label)>, Vec<(usize, &Label)>) = string_instances
         .into_iter()
@@ -458,15 +461,6 @@ fn lay_out_string_table(string_instances: &mut HashMap<Label, usize>) -> Vec<Lab
                 .into_iter()
                 .inspect(|string| debug!(target: "multistream", "bottom string: {:?}", string)))
         .collect()
-/*
-    by_frequency_desc
-        .into_iter()
-        .sorted_by(|a,b| compare_string_label_lexicographically(a, b))
-        .into_iter()
-        .map(|s| s.clone())
-        .inspect(|x| debug!(target: "multistream", "sorted: {:?}", x))
-        .collect()
-*/
 }
 
 fn compare_string_label_lexicographically(a: &Label, b: &Label) -> std::cmp::Ordering {
@@ -478,6 +472,28 @@ fn compare_string_label_lexicographically(a: &Label, b: &Label) -> std::cmp::Ord
         (Label::String(Some(p)), Label::String(Some(q))) => { str::cmp(&p, &q) }
         _ => panic!("string frequencies contains non-strings")
     }
+}
+
+fn write_string_data(stream: &mut CompressionTarget, strings: &Vec<Label>) -> std::result::Result<usize, std::io::Error> {
+    // Liberate the string data from the labels.
+    let mut chars: Vec<u8> = Vec::new();
+    for ref string in strings {
+        // What is Label::String(None)? If it is zero-length, we're
+        // fine; if it is null or some discriminated value, that needs
+        // to be encoded somewhere.
+        if let Label::String(Some(s)) = string {
+            chars.extend_from_slice(s.as_bytes());
+        }
+    }
+    // Transform it.
+    let (tx_chars, key) = bwt::bwt(&chars);
+    // Output it.
+    let mut size = stream.write(&[(key & 0xff) as u8,
+                              ((key >> 8) & 0xff) as u8,
+                              ((key >> 16) & 0xff) as u8,
+                              ((key >> 24) & 0xff) as u8])?;
+    size += stream.write(&tx_chars[..])?;
+    Ok(size)
 }
 
 impl TokenWriter for TreeTokenWriter {
@@ -746,13 +762,13 @@ impl TokenWriter for TreeTokenWriter {
                 header_identifiers.stream.len(),
                 identifier_definition_frequencies.len());
 
+            // Write the string lengths.
             string_frequency_stream.write_varnum(strings_ordered.len() as u32).unwrap();
             for ref string in &strings_ordered {
                 string_frequency_stream.write_varnum(string.string_byte_len() as u32).unwrap();
             }
-            for ref string in &strings_ordered {
-                string_frequency_dictionary.write_label(string, None, &mut string_frequency_stream).unwrap();
-            }
+            // Write the string data.
+            write_string_data(&mut string_frequency_stream, &strings_ordered).unwrap();
             debug!(target: "multistream", "Wrote {} bytes ({} strings) to header",
                 string_frequency_stream.len(),
                 strings_ordered.len());
