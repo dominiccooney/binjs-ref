@@ -449,14 +449,15 @@ fn lay_out_string_table(string_instances: &mut HashMap<Label, usize>) -> Vec<Lab
         .map(|(i, string)| string.clone()) // strip off the indices
         .sorted_by(|a, b| compare_string_label_lexicographically(&b, &a))
         .into_iter()
-        .inspect(|string| debug!(target: "multistream", "top string: {:?}", string))
+//        .inspect(|string| debug!(target: "multistream", "top string: {:?}", string))
         .chain(
             bottom_strings
                 .into_iter()
                 .map(|(i, string)| string.clone()) // strip off the indices
                 .sorted_by(|a, b| compare_string_label_lexicographically(&a, &b))
                 .into_iter()
-                .inspect(|string| debug!(target: "multistream", "bottom string: {:?}", string)))
+            //                .inspect(|string| debug!(target: "multistream", "bottom string: {:?}", string))
+        )
         .collect()
 /*
     by_frequency_desc
@@ -813,17 +814,46 @@ impl TokenWriter for TreeTokenWriter {
         debug!(target: "multistream", "Compression complete: {:?}", stats);
 
         let mut result = vec![];
+        let mut start = 0;
         result.extend_from_slice(header_tags.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(header_identifiers.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(string_frequency_stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.declarations.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.idrefs.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.tags.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.strings.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.numbers.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.bools.stream.done().unwrap().0.as_ref());
-        result.extend_from_slice(compressors.lists.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "header_tags");
+        start = result.len();
 
+        result.extend_from_slice(header_identifiers.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "header_identifiers");
+        start = result.len();
+
+        result.extend_from_slice(string_frequency_stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "string_frequency_stream");
+        start = result.len();
+
+        result.extend_from_slice(compressors.declarations.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "declarations");
+        start = result.len();
+
+        result.extend_from_slice(compressors.idrefs.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "idrefs");
+        start = result.len();
+
+        result.extend_from_slice(compressors.tags.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "tags");
+        start = result.len();
+
+        result.extend_from_slice(compressors.strings.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "strings");
+        start = result.len();
+
+        result.extend_from_slice(compressors.numbers.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "numbers");
+        start = result.len();
+
+        result.extend_from_slice(compressors.bools.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "bools");
+        start = result.len();
+
+        result.extend_from_slice(compressors.lists.stream.done().unwrap().0.as_ref());
+        debug!(target: "parts", "{:},{:},{:}", start, result.len(), "lists");
+        start = result.len();
 
         Ok((result, stats))
     }
