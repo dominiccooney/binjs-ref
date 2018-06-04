@@ -164,7 +164,7 @@ impl SubTree {
             Label::List(_)   => &mut compressors.lists,
             Label::Tag(_)    => &mut compressors.tags,
             Label::Declare(_) => &mut compressors.declarations,
-            Label::NumberedReference(_) => &mut compressors.idrefs,
+            Label::NumberedReference(n) => &mut compressors.idrefs,
             Label::Scope(_) => /* Nothing to do */ return Ok(()),
             _ => unimplemented!()
         };
@@ -683,7 +683,7 @@ impl TokenWriter for TreeTokenWriter {
         // labeler numbers the entries as they are output; instead it
         // can just write the string and use the implicit order.
         //let mut string_frequency_dictionary = ExplicitIndexLabeler::new(string_index_map.clone());
-        let mut string_frequency_dictionary = MRUDeltaLabeler::new(string_index_map.clone());
+        let mut string_frequency_dictionary = MRUDeltaLabeler::new(true, string_index_map.clone());
         let mut string_frequency_stream = self.targets.header_strings;
 
         let identifier_reference_frequencies : HashMap<_, _> = identifier_reference_instances.into_iter()
@@ -764,7 +764,8 @@ impl TokenWriter for TreeTokenWriter {
                 stream: self.targets.contents.declarations,
             },
             idrefs: Compressor {
-                dictionary: Box::new(RawLabeler::new()), // FIXME: Could possibly use ParentPrediction where the `Scope` is the parent
+                //                dictionary: Box::new(RawLabeler::new()), // FIXME: Could possibly use ParentPrediction where the `Scope` is the parent
+                dictionary: Box::new(MRUDeltaLabeler::new(false, identifier_reference_frequencies)),
                 stream: self.targets.contents.idrefs,
             },
             tags: Compressor {

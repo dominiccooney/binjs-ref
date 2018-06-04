@@ -106,16 +106,18 @@ pub struct MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label {
     size: usize, // number of unqiue strings
     string_index_map: HashMap<T,usize>,
     seen: HashSet<usize>,
+    output_definition: bool,
 }
 
 impl<T> MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label {
-    pub fn new(label_index_map: HashMap<T,usize>) -> Self {
+    pub fn new(output_definition: bool, label_index_map: HashMap<T,usize>) -> Self {
         let size = label_index_map.len();
         Self {
             mru: binjs_shared::mru_delta::MRUDelta::new(3),
             size: label_index_map.len(),
             string_index_map: label_index_map,
             seen: HashSet::with_capacity(size),
+            output_definition,
         }
     }
 }
@@ -135,7 +137,7 @@ impl<T,W> Dictionary<T,W> for MRUDeltaLabeler<T> where T: Eq + Hash + Sized + La
 
         let index = self.string_index_map.get(label).expect("Can only write labels in the map").clone();
 
-        if self.seen.insert(index) {
+        if self.output_definition && self.seen.insert(index) {
             // TODO: This is hokey, we know we're writing the string
             // table first, the length has been stored out-of-line,
             // and the order is implicit.
