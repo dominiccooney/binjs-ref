@@ -481,6 +481,14 @@ fn compare_string_label_lexicographically(a: &Label, b: &Label) -> std::cmp::Ord
     }
 }
 
+fn unpack_list_for_raw_labeler(label: &Label) -> usize {
+    if let Label::List(Some(n)) = label {
+        *n as usize
+    } else {
+        panic!("Asked to compress a 'none' list/not-list.")
+    }
+}
+
 impl TokenWriter for TreeTokenWriter {
     type Error = TokenWriterError;
     type Statistics = Statistics;
@@ -586,7 +594,7 @@ impl TokenWriter for TreeTokenWriter {
     }
 
     fn done(mut self) -> Result<(Self::Data, Self::Statistics), Self::Error> {
-        use labels:: { ExplicitIndexLabeler, MRUDeltaLabeler, MRULabeler, ParentPredictionFrequencyLabeler, RawLabeler };
+        use labels:: { ExplicitIndexLabeler, MRUDeltaLabeler, MRUDeltaRawLabeler, MRULabeler, ParentPredictionFrequencyLabeler, RawLabeler };
         self.number_references()?;
 
         let mut tag_instances = HashMap::new();
@@ -782,7 +790,8 @@ impl TokenWriter for TreeTokenWriter {
                 stream: self.targets.contents.bools,
             },
             lists: Compressor {
-                dictionary: Box::new(RawLabeler::new()), // FIXME: Experiment with ParentPredictionFrequencyLabeler
+                //                dictionary: Box::new(RawLabeler::new()), // FIXME: Experiment with ParentPredictionFrequencyLabeler
+                dictionary: Box::new(MRUDeltaRawLabeler::new(&unpack_list_for_raw_labeler)),
                 stream: self.targets.contents.lists,
             },
             strings: Compressor {

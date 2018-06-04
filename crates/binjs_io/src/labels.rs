@@ -101,6 +101,49 @@ struct Seen<T> {
     is_first: bool,
 }
 
+pub struct MRUDeltaRawLabeler<'a, F, T> where F: 'a + Fn(&T) -> usize, T: Label {
+    mru: binjs_shared::mru_delta::MRUDelta,
+    mapper: &'a F,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<'a, F,T> MRUDeltaRawLabeler<'a, F,T> where F: Fn(&T) -> usize, T: Label {
+    pub fn new(mapper: &'a F) -> Self {
+        Self {
+            mru: binjs_shared::mru_delta::MRUDelta::new(3),
+            mapper,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, F,T,W> Dictionary<T,W> for MRUDeltaRawLabeler<'a, F, T> where T: Label, W: Write, F: 'a + Fn(&T) -> usize {
+    fn write_label_at(&mut self, baseline: Option<usize>, label: &T, parent: Option<&T>, out: &mut W) -> Result<bool, std::io::Error> {
+        use bytes::varnum::WriteDelta;
+        use binjs_shared::mru_delta::Delta;
+
+        if let Some(_) = baseline {
+            panic!("Have not thought about offset MRU delta labels.");
+        }
+        if let Some(_) = baseline {
+            panic!("Have not thought about context-dependent MRU delta labels.");
+        }
+
+        let index = (self.mapper)(label);
+
+        match self.mru.access(index) {
+            Delta::TooFar => {
+                out.write_delta_literal(index as u32)?;
+                Ok(false)
+            }
+            Delta::Delta(i, d) => {
+                out.write_delta_delta(i, d)?;
+                Ok(false)
+            }
+        }
+    }
+}
+
 pub struct MRUDeltaLabeler<T> where T: Eq + Hash + Sized + Label {
     mru: binjs_shared::mru_delta::MRUDelta,
     size: usize, // number of unqiue strings
