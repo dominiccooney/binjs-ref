@@ -477,6 +477,7 @@ impl Encoder {
         let mut cursor = Cursor::new(vec![]);
         match self.dictionary_placement {
             DictionaryPlacement::Header => {
+                // TODO: Here.
                 info!(target: "repair", "Generating header.");
                 // Recollect the labels. All of this could definitely be made more efficient.
                 let frequency = self.root.tree.borrow().collect_labels();
@@ -573,13 +574,16 @@ impl TokenWriter for Encoder {
 
     fn done(mut self) -> Result<(Self::Data, Self::Statistics), Self::Error> {
         // Rewrite tree with digrams.
+        info!(target: "repair", "replacing strings with a string stream");
+        
         info!(target: "repair", "Compressing tree to digrams.");
         self.proceed_with_tree_repair();
 
         let result = match self.numbering_strategy {
             NumberingStrategy::MRU => {
                 info!(target: "repair", "Using strategy: MRU.");
-                self.serialize_all(&mut labels::MRULabeler::new())
+                let dictionary = self.root.get_frequency();
+                self.serialize_all(&mut labels::MRUDeltaLabeler::new(true, dictionary))
             }
             NumberingStrategy::GlobalFrequency => {
                 info!(target: "repair", "Using strategy: Global frequency.");
