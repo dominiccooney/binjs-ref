@@ -59,8 +59,8 @@ impl MRUDelta {
             return Delta::TooFar;
         }
         let mut min_index = self.size;
-        // TODO: This prevents the maximum negative value.
-        let mut min_delta = (1i8 << (8 - self.size)) + 1;
+        // Maximum negative value is reserved as a flag.
+        let mut min_delta = (1i8 << (8 - self.size));
         // Find the entry with the smallest delta to value.
         for (index, entry) in self.items.iter().enumerate() {
             let delta = value as i64 - *entry as i64;

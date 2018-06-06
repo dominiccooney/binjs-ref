@@ -23,35 +23,47 @@ pub trait WriteDelta {
     fn write_delta_literal(&mut self, literal: u32) -> Result<usize, std::io::Error>;
 }
 
-// Deltas are -2^5 - 2^5-1 two's complement delta with h.o. 6 bits
-// l.o. bits
-// 00 -> delta from MRU 0
-// 01 -> delta from MRU 1
-// 10 -> delta from MRU 2
-// 11 -> multi-byte starting from these 6 bits
+/// These values aren't used by the delta encoder and can be used by
+/// the format to switch to something else.
+pub const MRU_DELTA_MAGIC_1: u8 = 0x80u8;
+pub const MRU_DELTA_MAGIC_2: u8 = 0x81u8;
+pub const MRU_DELTA_MAGIC_3: u8 = 0x82u8;
+
+/// Deltas are -2^5 - 2^5-1 two's complement delta with h.o. 6 bits
+/// l.o. bits
+/// 00 -> delta from MRU 0
+/// 01 -> delta from MRU 1
+/// 10 -> delta from MRU 2
+/// 11 -> multi-byte starting from these 6 bits
 impl<T> WriteDelta for T where T: Write {
     fn write_delta_delta(&mut self, mru_index: usize, delta: i8) -> Result<usize, std::io::Error> {
         assert!(mru_index < 3, "MRU index out of range, must be 0, 1 or 2");
-        assert!(-32 <= delta && delta <= 31, "delta out of 6-bit range");
-        let b = (mru_index & 0x3) as i8 | delta << 2;
+        assert!(-31 <= delta && delta <= 31, "delta out of 6-bit range");
+        let b = (mru_index & 0x3) as u8 | (delta << 2) as u8;
+        assert!(b != MRU_DELTA_MAGIC_1);
+        assert!(b != MRU_DELTA_MAGIC_2);
+        assert!(b != MRU_DELTA_MAGIC_3);
         self.write_all(&[b as u8])?;
         Ok(1)
     }
     fn write_delta_literal(&mut self, literal: u32) -> Result<usize, std::io::Error> {
         let mut value = literal;
         let mut bytes = Vec::with_capacity(4);
-        let mut b = ((value & 0x1f) << 3) as i8 | 0x3;
+        let mut b = ((value & 0x1f) << 3) as u8 | 0x3;
         if value > 0x1f {
             b |= 1 << 2;
         }
+        assert!(b != MRU_DELTA_MAGIC_1);
+        assert!(b != MRU_DELTA_MAGIC_2);
+        assert!(b != MRU_DELTA_MAGIC_3);
         bytes.push(b as u8);
         value >>= 5;
         while value != 0 {
-            b = ((value & 0x7f) << 1) as i8;
+            b = ((value & 0x7f) << 1) as u8;
             if value > 0x7f {
                 b |= 1;
             }
-            bytes.push(b as u8);
+            bytes.push(b);
             value >>= 7;
         }
         self.write_all(&bytes)?;

@@ -109,6 +109,7 @@ impl std::fmt::Display for Label {
 
 impl WritableLabel for Label {
     fn write_definition<W: Write, L: Dictionary<Self, W>>(&self, index: Option<usize>, parent: Option<&Self>, strategy: &mut L, out: &mut W) -> Result<(), std::io::Error> {
+        // TODO: This does not appear to write a tag for the kind of label.
         use self::Label::*;
         if let Some(index) = index {
             use bytes::varnum::WriteVarNum;
@@ -583,7 +584,7 @@ impl TokenWriter for Encoder {
             NumberingStrategy::MRU => {
                 info!(target: "repair", "Using strategy: MRU.");
                 let dictionary = self.root.get_frequency();
-                self.serialize_all(&mut labels::MRUDeltaLabeler::new(true, dictionary))
+                self.serialize_all(&mut labels::MRUDeltaLabeler::new(true, true, dictionary))
             }
             NumberingStrategy::GlobalFrequency => {
                 info!(target: "repair", "Using strategy: Global frequency.");
